@@ -1,17 +1,44 @@
 import streamlit as st
 import pandas as pd
-import os
 import plotly.express as px
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import json
 
 st.set_page_config(page_title="Smart Attendance Dashboard", layout="wide")
-file_path = 'Attendance_Log.csv'
 
 st.markdown("## 📊 Smart Attendance Ultimate Multi-Branch Dashboard")
 
-if os.path.exists(file_path):
-    df = pd.read_csv(file_path)
-else:
-    df = pd.DataFrame(columns=['ID', 'Name', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
+# --- Google Sheets Connection Magic ---
+@st.cache_data(ttl=60) # প্রতি ১ মিনিটে অটো ডেটা রিফ্রেশ হবে
+def load_data():
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
+                 "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+        
+        # Streamlit Secrets থেকে চাবি নেওয়া
+        creds_dict = json.loads(st.secrets["google_credentials"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        sheet = client.open("Smart_Attendance_Database").sheet1
+        data = sheet.get_all_records()
+        
+        if data:
+            return pd.DataFrame(data)
+        else:
+            return pd.DataFrame(columns=['ID', 'Name', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
+    except Exception as e:
+        st.error(f"Database Connection Error: {e}")
+        return pd.DataFrame(columns=['ID', 'Name', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
+
+df = load_data()
+
+# CEO-র জন্য লাইভ রিফ্রেশ বাটন
+st.sidebar.markdown("### 🔄 রিয়েল-টাইম আপডেট")
+if st.sidebar.button("লাইভ ডেটা রিফ্রেশ করুন"):
+    st.cache_data.clear()
+    st.rerun()
 
 st.sidebar.markdown("### 💰 স্যালারি ও পেনাল্টি সেটিংস")
 base_salary = st.sidebar.number_input("অফিস কর্মীদের মূল বেতন (BDT):", min_value=0, value=15000, step=1000)
@@ -79,7 +106,7 @@ with tab1:
         st.markdown("### 📝 Detailed Report")
         st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
-# ================= TAB 2 : মাসিক রিপোর্ট ও স্যালারি (Holiday Logic) =================
+# ================= TAB 2 : মাসিক রিপোর্ট ও স্যালারি =================
 with tab2:
     st.markdown("### 📊 মাসিক উপস্থিতির সারসংক্ষেপ ও স্যালারি")
     if not df.empty:
@@ -90,15 +117,13 @@ with tab2:
         monthly_df = df[df['Month_Year'] == selected_month].copy()
         month_dates = monthly_df['Date'].unique().tolist()
         
-        # Holiday Settings UI
         st.markdown("#### 🌴 ছুটির দিনের সেটিংস (Holiday Settings)")
         hol_col1, hol_col2 = st.columns(2)
         with hol_col1:
             holiday_dates = st.multiselect("এই মাসের সাপ্তাহিক বা সরকারী ছুটির তারিখগুলো সিলেক্ট করুন:", month_dates)
         with hol_col2:
-            holiday_allowance = st.number_input("ছুটির দিনে ডিউটির জন্য এক্সট্রা ভাতা (BDT) - [ঐচ্ছিক]:", min_value=0, value=0, step=100)
+            holiday_allowance = st.number_input("ছুটির দিনে ডিউটির জন্য এক্সট্রা ভাতা (BDT):", min_value=0, value=0, step=100)
         
-        # Apply Holiday Status Logic
         monthly_df['Calc_Status'] = monthly_df.apply(
             lambda row: 'H_A' if (row['Date'] in holiday_dates and row['Status'] == 'A') else
                         'H_P' if (row['Date'] in holiday_dates and row['Status'] in ['P', 'LC']) else
@@ -109,16 +134,15 @@ with tab2:
         for col in ['P', 'LC', 'A', 'H_A', 'H_P']:
             if col not in summary.columns: summary[col] = 0
         
-        # Dynamic Salary Calculator Logic with Holidays
         def calc_payroll(row):
             emp_id = str(row['ID'])
             if emp_id.startswith('OPRON') or (emp_id.startswith('BG') and len(emp_id) == 6):
-                return 0, 0, 0, 0, 0 # No basic salary
+                return 0, 0, 0, 0, 0 
             
             emp_base = base_salary
             per_day = emp_base / 30
             late_ded = (row['LC'] // late_count_for_deduction) * per_day
-            abs_ded = row['A'] * per_day # Only deduct for normal Absents, not H_A
+            abs_ded = row['A'] * per_day 
             holiday_bonus = row['H_P'] * holiday_allowance
             
             net = emp_base - late_ded - abs_ded + holiday_bonus
@@ -133,11 +157,8 @@ with tab2:
         
         summary = summary.drop(columns=['payroll'])
         display_summary = summary.rename(columns={
-            'P': 'সাধারণ উপস্থিত', 
-            'LC': 'লেট (LC)', 
-            'A': 'অনুপস্থিত (টাকা কাটা হবে)', 
-            'H_A': 'ছুটি (টাকা কাটা হবে না)',
-            'H_P': 'ছুটির দিনে ডিউটি'
+            'P': 'সাধারণ উপস্থিত', 'LC': 'লেট (LC)', 'A': 'অনুপস্থিত', 
+            'H_A': 'ছুটি (টাকা কাটা হবে না)', 'H_P': 'ছুটির দিনে ডিউটি'
         })
         st.dataframe(display_summary, use_container_width=True, hide_index=True)
         
@@ -160,6 +181,6 @@ with tab3:
         
         perf_counts = emp_df['Status'].value_counts().reset_index()
         perf_counts.columns = ['স্ট্যাটাস', 'দিন সংখ্যা']
-        fig_perf = px.bar(perf_counts, x='স্ট্যাটাস', y='দিন সংখ্যা', color='স্ট্যাটাস', color_discrete_map={'P': '#28a745', 'LC': '#ffc107', 'A': '#dc3545'}, title=f"{selected_prof_emp} - এর পারফরম্যান্স গ্রাফ")
+        fig_perf = px.bar(perf_counts, x='স্ট্যাটাস', y='দিন সংখ্যা', color='স্ট্যাটাস', color_discrete_map={'P': '#28a745', 'LC': '#ffc107', 'A': '#dc3545'})
         st.plotly_chart(fig_perf, use_container_width=True)
     else: st.info("প্রোফাইল দেখার জন্য সিস্টেমে কোনো ডেটা নেই।")
