@@ -10,13 +10,12 @@ st.set_page_config(page_title="Smart Attendance Dashboard", layout="wide")
 st.markdown("## 📊 Smart Attendance Ultimate Multi-Branch Dashboard")
 
 # --- Google Sheets Connection Magic ---
-@st.cache_data(ttl=60) # প্রতি ১ মিনিটে অটো ডেটা রিফ্রেশ হবে
+@st.cache_data(ttl=60)
 def load_data():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
                  "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
         
-        # Streamlit Secrets থেকে চাবি নেওয়া
         creds_dict = json.loads(st.secrets["google_credentials"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
@@ -27,20 +26,20 @@ def load_data():
         if data:
             return pd.DataFrame(data)
         else:
-            return pd.DataFrame(columns=['ID', 'Name', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
+            return pd.DataFrame(columns=['ID', 'Name', 'Designation', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
     except Exception as e:
         st.error(f"Database Connection Error: {e}")
-        return pd.DataFrame(columns=['ID', 'Name', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
+        return pd.DataFrame(columns=['ID', 'Name', 'Designation', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
 
 df = load_data()
 
-# CEO-র জন্য লাইভ রিফ্রেশ বাটন
+# CEO Live Refresh Button
 st.sidebar.markdown("### 🔄 রিয়েল-টাইম আপডেট")
 if st.sidebar.button("লাইভ ডেটা রিফ্রেশ করুন"):
     st.cache_data.clear()
     st.rerun()
 
-st.sidebar.markdown("### 💰 স্যালারি ও পেনাল্টি সেটিংস")
+st.sidebar.markdown("### 💰 স্যালারি ও পেনালিত্য সেটিংস")
 base_salary = st.sidebar.number_input("অফিস কর্মীদের মূল বেতন (BDT):", min_value=0, value=15000, step=1000)
 late_count_for_deduction = st.sidebar.number_input("কতদিন লেট হলে ১ দিনের বেতন কাটবে?:", min_value=1, value=3)
 
@@ -49,7 +48,7 @@ tab1, tab2, tab3 = st.tabs(["📅 দৈনিক রিপোর্ট (Daily)"
 # ================= TAB 1 : দৈনিক রিপোর্ট =================
 with tab1:
     st.markdown("### 🔍 দৈনিক ফিল্টার অপশন")
-    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
     
     with col_f1:
         if not df.empty:
@@ -74,6 +73,12 @@ with tab1:
             filtered_df = filtered_df[filtered_df['Shift'] == selected_shift]
 
     with col_f4:
+        desig_opts = ['All Designations'] + filtered_df['Designation'].unique().tolist() if not filtered_df.empty else ['All Designations']
+        selected_desig = st.selectbox("পদবি সিলেক্ট করুন:", desig_opts)
+        if selected_desig != 'All Designations':
+            filtered_df = filtered_df[filtered_df['Designation'] == selected_desig]
+
+    with col_f5:
         employees = ['All Employees'] + filtered_df['Name'].unique().tolist() if not filtered_df.empty else ['All Employees']
         selected_emp = st.selectbox("নির্দিষ্ট কর্মী খুঁজুন:", employees, key="daily_emp")
         if selected_emp != 'All Employees':
@@ -108,7 +113,7 @@ with tab1:
 
 # ================= TAB 2 : মাসিক রিপোর্ট ও স্যালারি =================
 with tab2:
-    st.markdown("### 📊 মাসিক উপস্থিতির সারসংক্ষেপ ও স্যালারি")
+    st.markdown("### 📊 মাসিক उपस्थितির সারসংক্ষেপ ও স্যালারি")
     if not df.empty:
         df['Month_Year'] = df['Date'].apply(lambda x: "-".join(x.split('-')[1:]))
         months = df['Month_Year'].unique().tolist()
@@ -130,7 +135,7 @@ with tab2:
                         row['Status'], axis=1
         )
         
-        summary = monthly_df.groupby(['ID', 'Name'])['Calc_Status'].value_counts().unstack(fill_value=0).reset_index()
+        summary = monthly_df.groupby(['ID', 'Name', 'Designation'])['Calc_Status'].value_counts().unstack(fill_value=0).reset_index()
         for col in ['P', 'LC', 'A', 'H_A', 'H_P']:
             if col not in summary.columns: summary[col] = 0
         
@@ -171,8 +176,11 @@ with tab3:
     st.markdown("### 👤 ইন্ডিভিজুয়াল কর্মী পারফরম্যান্স ট্র্যাক")
     if not df.empty:
         emp_list = df['Name'].unique().tolist()
-        selected_prof_emp = st.selectbox("কর্মীর নাম সিলেক্ট করুন:", emp_list)
+        selected_prof_emp = st.selectbox("कर्मীর নাম সিলেক্ট করুন:", emp_list)
         emp_df = df[df['Name'] == selected_prof_emp]
+        
+        if not emp_df.empty:
+            st.markdown(f"**পদবি (Designation):** {emp_df.iloc[0]['Designation']}")
         
         prof_c1, prof_c2, prof_c3 = st.columns(3)
         prof_c1.metric("মোট উপস্থিতি", len(emp_df[emp_df['Status'].isin(['P', 'LC'])]))
