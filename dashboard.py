@@ -1,0 +1,165 @@
+import streamlit as st
+import pandas as pd
+import os
+import plotly.express as px
+
+st.set_page_config(page_title="Smart Attendance Dashboard", layout="wide")
+file_path = 'Attendance_Log.csv'
+
+st.markdown("## 📊 Smart Attendance Ultimate Multi-Branch Dashboard")
+
+if os.path.exists(file_path):
+    df = pd.read_csv(file_path)
+else:
+    df = pd.DataFrame(columns=['ID', 'Name', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
+
+st.sidebar.markdown("### 💰 স্যালারি ও পেনাল্টি সেটিংস")
+base_salary = st.sidebar.number_input("অফিস কর্মীদের মূল বেতন (BDT):", min_value=0, value=15000, step=1000)
+late_count_for_deduction = st.sidebar.number_input("কতদিন লেট হলে ১ দিনের বেতন কাটবে?:", min_value=1, value=3)
+
+tab1, tab2, tab3 = st.tabs(["📅 দৈনিক রিপোর্ট (Daily)", "📆 মাসিক রিপোর্ট ও স্যালারি (Monthly)", "👤 প্রোফাইল অ্যানালিটিক্স (Profile)"])
+
+# ================= TAB 1 : দৈনিক রিপোর্ট =================
+with tab1:
+    st.markdown("### 🔍 দৈনিক ফিল্টার অপশন")
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    
+    with col_f1:
+        if not df.empty:
+            dates = df['Date'].unique().tolist()
+            selected_date = st.selectbox("তারিখ সিলেক্ট করুন:", dates, index=len(dates)-1)
+            filtered_df = df[df['Date'] == selected_date]
+        else:
+            st.selectbox("তারিখ সিলেক্ট করুন:", ["No Data"])
+            filtered_df = df
+            selected_date = "No Data"
+
+    with col_f2:
+        branch_opts = ['All Branches', 'Sohor', 'Betagi', 'Potiya', 'Online', 'Sohor (Temp)']
+        selected_branch = st.selectbox("ব্রাঞ্চ সিলেক্ট করুন:", branch_opts)
+        if selected_branch != 'All Branches':
+            filtered_df = filtered_df[filtered_df['Branch'] == selected_branch]
+
+    with col_f3:
+        shift_opts = ['All Shifts', 'Day', 'Evening', 'Morning', 'Afternoon', 'Online']
+        selected_shift = st.selectbox("শিফট সিলেক্ট করুন:", shift_opts)
+        if selected_shift != 'All Shifts':
+            filtered_df = filtered_df[filtered_df['Shift'] == selected_shift]
+
+    with col_f4:
+        employees = ['All Employees'] + filtered_df['Name'].unique().tolist() if not filtered_df.empty else ['All Employees']
+        selected_emp = st.selectbox("নির্দিষ্ট কর্মী খুঁজুন:", employees, key="daily_emp")
+        if selected_emp != 'All Employees':
+            filtered_df = filtered_df[filtered_df['Name'] == selected_emp]
+
+    total_emp = len(filtered_df)
+    present = len(filtered_df[filtered_df['Status'] == 'P'])
+    late = len(filtered_df[filtered_df['Status'] == 'LC'])
+    absent = len(filtered_df[filtered_df['Status'] == 'A'])
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("মোট কর্মী", total_emp)
+    c2.metric("উপস্থিত (P)", present)
+    c3.metric("লেট (LC)", late)
+    c4.metric("অনুপস্থিত (A)", absent)
+
+    st.markdown("---")
+    col_chart, col_table = st.columns([1, 2])
+    with col_chart:
+        st.markdown("### 📈 Attendance Chart")
+        if total_emp > 0:
+            status_counts = filtered_df['Status'].value_counts().reset_index()
+            status_counts.columns = ['Status', 'Count']
+            fig = px.pie(status_counts, values='Count', names='Status', hole=0.4, color='Status', color_discrete_map={'P': '#28a745', 'LC': '#ffc107', 'A': '#dc3545'})
+            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+        else: st.info("কোনো ডেটা নেই!")
+
+    with col_table:
+        st.markdown("### 📝 Detailed Report")
+        st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
+# ================= TAB 2 : মাসিক রিপোর্ট ও স্যালারি (Holiday Logic) =================
+with tab2:
+    st.markdown("### 📊 মাসিক উপস্থিতির সারসংক্ষেপ ও স্যালারি")
+    if not df.empty:
+        df['Month_Year'] = df['Date'].apply(lambda x: "-".join(x.split('-')[1:]))
+        months = df['Month_Year'].unique().tolist()
+        selected_month = st.selectbox("মাস সিলেক্ট করুন:", months, key="monthly_month")
+        
+        monthly_df = df[df['Month_Year'] == selected_month].copy()
+        month_dates = monthly_df['Date'].unique().tolist()
+        
+        # Holiday Settings UI
+        st.markdown("#### 🌴 ছুটির দিনের সেটিংস (Holiday Settings)")
+        hol_col1, hol_col2 = st.columns(2)
+        with hol_col1:
+            holiday_dates = st.multiselect("এই মাসের সাপ্তাহিক বা সরকারী ছুটির তারিখগুলো সিলেক্ট করুন:", month_dates)
+        with hol_col2:
+            holiday_allowance = st.number_input("ছুটির দিনে ডিউটির জন্য এক্সট্রা ভাতা (BDT) - [ঐচ্ছিক]:", min_value=0, value=0, step=100)
+        
+        # Apply Holiday Status Logic
+        monthly_df['Calc_Status'] = monthly_df.apply(
+            lambda row: 'H_A' if (row['Date'] in holiday_dates and row['Status'] == 'A') else
+                        'H_P' if (row['Date'] in holiday_dates and row['Status'] in ['P', 'LC']) else
+                        row['Status'], axis=1
+        )
+        
+        summary = monthly_df.groupby(['ID', 'Name'])['Calc_Status'].value_counts().unstack(fill_value=0).reset_index()
+        for col in ['P', 'LC', 'A', 'H_A', 'H_P']:
+            if col not in summary.columns: summary[col] = 0
+        
+        # Dynamic Salary Calculator Logic with Holidays
+        def calc_payroll(row):
+            emp_id = str(row['ID'])
+            if emp_id.startswith('OPRON') or (emp_id.startswith('BG') and len(emp_id) == 6):
+                return 0, 0, 0, 0, 0 # No basic salary
+            
+            emp_base = base_salary
+            per_day = emp_base / 30
+            late_ded = (row['LC'] // late_count_for_deduction) * per_day
+            abs_ded = row['A'] * per_day # Only deduct for normal Absents, not H_A
+            holiday_bonus = row['H_P'] * holiday_allowance
+            
+            net = emp_base - late_ded - abs_ded + holiday_bonus
+            return emp_base, round(late_ded, 2), round(abs_ded, 2), round(holiday_bonus, 2), max(0, round(net, 2))
+
+        summary['payroll'] = summary.apply(calc_payroll, axis=1)
+        summary['মূল বেতন (BDT)'] = summary['payroll'].apply(lambda x: x[0])
+        summary['লেট জরিমানা (BDT)'] = summary['payroll'].apply(lambda x: x[1])
+        summary['অনুপস্থিতি কর্তন (BDT)'] = summary['payroll'].apply(lambda x: x[2])
+        summary['হলিডে বোনাস (BDT)'] = summary['payroll'].apply(lambda x: x[3])
+        summary['চূড়ান্ত বেতন (BDT)'] = summary['payroll'].apply(lambda x: x[4])
+        
+        summary = summary.drop(columns=['payroll'])
+        display_summary = summary.rename(columns={
+            'P': 'সাধারণ উপস্থিত', 
+            'LC': 'লেট (LC)', 
+            'A': 'অনুপস্থিত (টাকা কাটা হবে)', 
+            'H_A': 'ছুটি (টাকা কাটা হবে না)',
+            'H_P': 'ছুটির দিনে ডিউটি'
+        })
+        st.dataframe(display_summary, use_container_width=True, hide_index=True)
+        
+        csv_monthly = display_summary.to_csv(index=False).encode('utf-8')
+        st.download_button(label="📥 মাসিক স্যালারি রিপোর্ট ডাউনলোড করুন (CSV)", data=csv_monthly, file_name=f"Monthly_Salary_Report_{selected_month}.csv", mime="text/csv")
+    else: st.info("পর্যাপ্ত ডেটা নেই।")
+
+# ================= TAB 3 : প্রোফাইল অ্যানালিটিক্স =================
+with tab3:
+    st.markdown("### 👤 ইন্ডিভিজুয়াল কর্মী পারফরম্যান্স ট্র্যাক")
+    if not df.empty:
+        emp_list = df['Name'].unique().tolist()
+        selected_prof_emp = st.selectbox("কর্মীর নাম সিলেক্ট করুন:", emp_list)
+        emp_df = df[df['Name'] == selected_prof_emp]
+        
+        prof_c1, prof_c2, prof_c3 = st.columns(3)
+        prof_c1.metric("মোট উপস্থিতি", len(emp_df[emp_df['Status'].isin(['P', 'LC'])]))
+        prof_c2.metric("মোট লেট", len(emp_df[emp_df['Status'] == 'LC']))
+        prof_c3.metric("মোট অনুপস্থিতি", len(emp_df[emp_df['Status'] == 'A']))
+        
+        perf_counts = emp_df['Status'].value_counts().reset_index()
+        perf_counts.columns = ['স্ট্যাটাস', 'দিন সংখ্যা']
+        fig_perf = px.bar(perf_counts, x='স্ট্যাটাস', y='দিন সংখ্যা', color='স্ট্যাটাস', color_discrete_map={'P': '#28a745', 'LC': '#ffc107', 'A': '#dc3545'}, title=f"{selected_prof_emp} - এর পারফরম্যান্স গ্রাফ")
+        st.plotly_chart(fig_perf, use_container_width=True)
+    else: st.info("প্রোফাইল দেখার জন্য সিস্টেমে কোনো ডেটা নেই।")
