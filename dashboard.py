@@ -113,7 +113,7 @@ with tab1:
 
 # ================= TAB 2 : মাসিক রিপোর্ট ও স্যালারি =================
 with tab2:
-    st.markdown("### 📊 মাসিক उपस्थितির সারসংক্ষেপ ও স্যালারি")
+    st.markdown("### 📊 মাসিক উপস্থিতির সারসংক্ষেপ ও স্যালারি")
     if not df.empty:
         df['Month_Year'] = df['Date'].apply(lambda x: "-".join(x.split('-')[1:]))
         months = df['Month_Year'].unique().tolist()
