@@ -278,3 +278,85 @@ try:
         st.warning("Google Sheet-এ কোনো প্রোডাকশন ডেটা পাওয়া যায়নি!")
 except Exception as e:
     st.error(f"ড্যাশবোর্ডে ডেটা লোড করতে সমস্যা হচ্ছে: {e}")    
+
+# =====================================================================
+# ------------ NEW SECTION : PRODUCTION & INCOME (KS) -----------------
+# =====================================================================
+import gspread
+import json
+import pandas as pd
+import streamlit as st
+
+st.markdown("---")
+st.title("💰 প্রোডাকশন ও ইনকাম (KS) ড্যাশবোর্ড")
+
+@st.cache_data(ttl=60)
+def load_production_data():
+    # Secrets থেকে ডাটা নিচ্ছে
+    creds_dict = json.loads(st.secrets["GOOGLE_SHEETS"]["json"])
+    client = gspread.service_account_from_dict(creds_dict)
+    sheet = client.open("Smart_Attendance_Database")
+    ws = sheet.worksheet("Production_Data")
+    data = ws.get_all_records()
+    return pd.DataFrame(data)
+
+try:
+    df_prod = load_production_data()
+    
+    if not df_prod.empty:
+        df_prod['Date'] = pd.to_datetime(df_prod['Date'], format='%d-%m-%Y').dt.date
+        
+        st.subheader("🗓️ তারিখ সিলেক্ট করুন (Date Range)")
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("From Date", value=df_prod['Date'].min(), key='start_date_prod')
+        with col2:
+            end_date = st.date_input("To Date", value=df_prod['Date'].max(), key='end_date_prod')
+            
+        mask = (df_prod['Date'] >= start_date) & (df_prod['Date'] <= end_date)
+        df_filtered = df_prod.loc[mask]
+        
+        total_images = df_filtered['Total Images'].sum()
+        total_income = df_filtered['Income'].sum()
+        
+        m_col1, m_col2 = st.columns(2)
+        with m_col1:
+            st.metric(label="মোট ইমেজ (Total Images)", value=f"{total_images:,.0f}")
+        with m_col2:
+            st.metric(label="মোট ইনকাম (Total Revenue)", value=f"৳ {total_income:,.2f}")
+            
+        st.subheader("📊 ব্রাঞ্চ অনুযায়ী কাজের চিত্র")
+        
+        def assign_branch(emp_id):
+            emp_id = str(emp_id).upper()
+            if emp_id.startswith('OPRON'): return 'Office Online'
+            elif any(k in emp_id for k in ['BGLB', 'JESMIN', 'RUBI', 'PUJA', 'MUKTA', 'BGBL', 'BGFCT', 'JONE', 'CHOP', 'BTLB', 'MEHARAZ']): return 'Little Boss Online'
+            else: return 'Regular Branch (BG/Evening/Betagi/Potiya)'
+            
+        df_filtered['Branch'] = df_filtered['Operator ID'].apply(assign_branch)
+        branch_summary = df_filtered.groupby('Branch')['Income'].sum().reset_index()
+        
+        st.bar_chart(data=branch_summary, x='Branch', y='Income')
+        
+        st.subheader("🔍 ইন্ডিভিজ্যুয়াল অপারেটর ইনকাম ট্র্যাক")
+        search_id = st.text_input("অপারেটর আইডি লিখুন (যেমন: BG00175, OPRON001):").strip().upper()
+        
+        if search_id:
+            df_ops = df_filtered[df_filtered['Operator ID'] == search_id]
+            if not df_ops.empty:
+                st.success(f"আইডি: {search_id} এর ডেটা পাওয়া গেছে!")
+                st.dataframe(df_ops[['Date', 'Total Images', 'Rate', 'Income']].sort_values(by='Date', ascending=False), use_container_width=True)
+                
+                ops_total_img = df_ops['Total Images'].sum()
+                ops_total_inc = df_ops['Income'].sum()
+                st.info(f"সিলেক্ট করা তারিখে এই অপারেটরের: মোট ইমেজ = {ops_total_img:,.0f} | মোট ইনকাম = ৳ {ops_total_inc:,.2f}")
+            else:
+                st.warning("এই আইডির কোনো ডেটা সিলেক্ট করা তারিখে নেই!")
+                
+        st.subheader("📋 ফিল্টার করা সম্পূর্ণ ডেটাশিট")
+        st.dataframe(df_filtered[['Date', 'Operator ID', 'Branch', 'Total Images', 'Rate', 'Income']].sort_values(by='Date', ascending=False), use_container_width=True)
+        
+    else:
+        st.warning("Google Sheet-এ কোনো প্রোডাকশন ডেটা পাওয়া যায়নি!")
+except Exception as e:
+    st.error(f"ড্যাশবোর্ডে ডেটা লোড করতে সমস্যা হচ্ছে: {e}")
