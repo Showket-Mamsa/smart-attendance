@@ -11,15 +11,21 @@ st.markdown("## 📊 Smart Attendance Ultimate Multi-Branch Dashboard")
 
 # --- Google Sheets Connection Magic ---
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def load_data():
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
-                 "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
-        
-        creds_dict = json.loads(st.secrets["google_credentials"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        
+        # প্রথমে চেষ্টা করবে আপনার পিসির credentials.json ফাইল থেকে ডাটা নেওয়ার (লোকাল পিসির জন্য)
+        try:
+            client = gspread.service_account(filename='credentials.json')
+        except Exception:
+            # যদি লোকাল ফাইল না পায় (মানে ক্লাউডে রান হলে), তখন Secrets থেকে নেবে
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
+                     "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+            creds_dict = json.loads(st.secrets["google_credentials"])
+            from oauth2client.service_account import ServiceAccountCredentials
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            client = gspread.authorize(creds)
+            
         sheet = client.open("Smart_Attendance_Database").sheet1
         data = sheet.get_all_records()
         
@@ -27,6 +33,7 @@ def load_data():
             return pd.DataFrame(data)
         else:
             return pd.DataFrame(columns=['ID', 'Name', 'Designation', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
+            
     except Exception as e:
         st.error(f"Database Connection Error: {e}")
         return pd.DataFrame(columns=['ID', 'Name', 'Designation', 'Date', 'Branch', 'Shift', 'In Time', 'Out Time', 'Status'])
