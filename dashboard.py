@@ -83,89 +83,57 @@ tabs = st.tabs(["🗓️ দৈনিক রিপোর্ট (Daily)", "📊 �
 with tabs[0]:
     st.markdown("### 🔍 দৈনিক ফিল্টার অপশন")
     
+    # ডেটা সোর্সিং
+    all_dates = sorted(df['Date'].unique().tolist(), reverse=True)
+    
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-        date_list = ["No Data"] if df.empty else df['Date'].unique().tolist()
-        selected_date = st.selectbox("তারিখ সিলেক্ট করুন:", date_list)
-        
+        selected_date = st.selectbox("তারিখ সিলেক্ট করুন:", all_dates)
+    
+    # ওই নির্দিষ্ট তারিখের জন্য ডেটা ফিল্টার করুন
+    date_filtered_df = df[df['Date'] == selected_date]
+    
     with col2:
-        branch_list = ["All Branches"] + (df['Branch'].dropna().unique().tolist() if not df.empty else [])
+        branch_list = ["All Branches"] + date_filtered_df['Branch'].dropna().unique().tolist()
         selected_branch = st.selectbox("ব্রাঞ্চ সিলেক্ট করুন:", branch_list)
         
     with col3:
-        shift_list = ["All Shifts"] + (df['Shift'].dropna().unique().tolist() if not df.empty else [])
+        shift_list = ["All Shifts"] + date_filtered_df['Shift'].dropna().unique().tolist()
         selected_shift = st.selectbox("শিফট সিলেক্ট করুন:", shift_list)
         
     with col4:
-        desig_list = ["All Designations"] + (df['Designation'].dropna().unique().tolist() if not df.empty else [])
+        desig_list = ["All Designations"] + date_filtered_df['Designation'].dropna().unique().tolist()
         selected_desig = st.selectbox("পদবি সিলেক্ট করুন:", desig_list)
         
     with col5:
-        emp_list = ["All Employees"] + (df['Name'].dropna().unique().tolist() if not df.empty else [])
+        emp_list = ["All Employees"] + date_filtered_df['Name'].dropna().unique().tolist()
         selected_emp = st.selectbox("নির্দিষ্ট কর্মী খুঁজুন:", emp_list)
 
-    # Filtering Logic
-    filtered_df = df.copy()
-    if not filtered_df.empty:
-        if selected_date != "No Data":
-            filtered_df = filtered_df[filtered_df['Date'] == selected_date]
-        if selected_branch != "All Branches":
-            filtered_df = filtered_df[filtered_df['Branch'] == selected_branch]
-        if selected_shift != "All Shifts":
-            filtered_df = filtered_df[filtered_df['Shift'] == selected_shift]
-        if selected_desig != "All Designations":
-            filtered_df = filtered_df[filtered_df['Designation'] == selected_desig]
-        if selected_emp != "All Employees":
-            filtered_df = filtered_df[filtered_df['Name'] == selected_emp]
+    # ফাইনাল ফিল্টারিং লজিক
+    final_df = date_filtered_df.copy()
+    if selected_branch != "All Branches":
+        final_df = final_df[final_df['Branch'] == selected_branch]
+    if selected_shift != "All Shifts":
+        final_df = final_df[final_df['Shift'] == selected_shift]
+    if selected_desig != "All Designations":
+        final_df = final_df[final_df['Designation'] == selected_desig]
+    if selected_emp != "All Employees":
+        final_df = final_df[final_df['Name'] == selected_emp]
 
     # Metrics Display
     st.markdown("<br>", unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
     
-    total_emp = len(filtered_df)
-    present_emp = len(filtered_df[filtered_df['Status'] == 'P']) if not filtered_df.empty else 0
-    late_emp = len(filtered_df[filtered_df['Status'] == 'LC']) if not filtered_df.empty else 0
-    absent_emp = len(filtered_df[filtered_df['Status'] == 'A']) if not filtered_df.empty else 0
+    total_emp = len(final_df)
+    present_emp = len(final_df[final_df['Status'] == 'P'])
+    late_emp = len(final_df[final_df['Status'] == 'LC'])
+    absent_emp = len(final_df[final_df['Status'] == 'A'])
     
     m1.metric("মোট কর্মী", total_emp)
     m2.metric("উপস্থিত (P)", present_emp)
     m3.metric("লেট (LC)", late_emp)
     m4.metric("অনুপস্থিত (A)", absent_emp)
-    
-    st.markdown("---")
-    
-    # Charts & Table
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.markdown("#### 📈 Attendance Chart")
-        if total_emp > 0 and (present_emp > 0 or late_emp > 0 or absent_emp > 0):
-            pie_data = pd.DataFrame({
-                'Status': ['Present', 'Late', 'Absent'],
-                'Count': [present_emp, late_emp, absent_emp]
-            })
-            pie_data = pie_data[pie_data['Count'] > 0]
-            fig = px.pie(pie_data, values='Count', names='Status', hole=0.4, 
-                         color='Status', color_discrete_map={'Present':'#28a745', 'Late':'#ffc107', 'Absent':'#dc3545'})
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("কোনো ডেটা নেই!")
-            
-    with c2:
-        st.markdown("#### 📝 Detailed Report")
-        if not filtered_df.empty:
-            st.dataframe(filtered_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("empty")
-
-# --- Tab 2 & 3: Monthly & Profile ---
-with tabs[1]:
-    st.markdown("### 📊 মাসিক রিপোর্ট ও স্যালারি")
-    st.info("এই সেকশনের কাজ চলছে...")
-
-with tabs[2]:
-    st.markdown("### 👤 প্রোফাইল অ্যানালিটিক্স")
-    st.info("এই সেকশনের কাজ চলছে...")
 
 # ==========================================
 # ৬. প্রোডাকশন ড্যাশবোর্ড
